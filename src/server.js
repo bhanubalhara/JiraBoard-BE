@@ -33,7 +33,11 @@ io.use(async (socket, next) => {
     const user = await User.findOne({ email: decoded.email });
     if (!user) return next(new Error("User not found"));
     socket.data.user = user;
-    socket.join(user.teamId?.toString());
+    if (user.teamId) {
+      socket.join(user.teamId.toString());
+    }
+    // Always join a private room based on user id so they receive personal events
+    socket.join(user._id.toString());
     next();
   } catch (err) {
     next(err);

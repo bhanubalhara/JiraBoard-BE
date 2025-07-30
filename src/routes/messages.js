@@ -11,7 +11,8 @@ const schema = Joi.object({
 // GET /api/messages
 router.get("/", async (req, res, next) => {
   try {
-    const msgs = await Message.find({ teamId: req.user.teamId }).sort({ timestamp: 1 });
+    const filter = req.user.teamId ? { teamId: req.user.teamId } : { senderId: req.user._id };
+    const msgs = await Message.find(filter).populate("senderId", "name").sort({ timestamp: 1 });
     res.json(msgs);
   } catch (err) {
     next(err);
@@ -23,13 +24,26 @@ router.post("/", async (req, res, next) => {
   const { error, value } = schema.validate(req.body);
   if (error) return res.status(400).json({ message: error.message });
   try {
-    const msg = await Message.create({
+    let msg = await Message.create({
       content: value.content,
       senderId: req.user._id,
-      teamId: req.user.teamId
+      teamId: req.user.teamId || undefined
     });
-    // Broadcast to team room via Socket.IO
-    req.io.to(req.user.teamId.toString()).emit("newMessage", msg);
+
+    msg = await msg.populate("senderId", "name");
+    // Determine room for broadcast
+    let room;
+    if (req.user.teamId) {
+      room = req.user.teamId.toString();
+    } else if (req.user._id) {
+      room = req.user._id.toString();
+    }
+    if (room) {
+      req.io.to(room).emit("newMessage", msg);
+    } else {
+      // fallback broadcast to all if no room could be determined (should not happen)
+      req.io.emit("newMessage", msg);
+    }
     res.status(201).json(msg);
   } catch (err) {
     next(err);
